@@ -1016,7 +1016,7 @@
                         <span class="interface-addr">${escapeHTML(iface.addr || 'No address')}</span>
                     </div>
                 </div>
-                <span class="interface-status ${iface.status === 'up' ? 'up' : 'down'}">
+                <span class="interface-status ${((iface.status || '').toLowerCase() === 'up') ? 'up' : ((iface.status || '').toLowerCase() === 'down' ? 'down' : 'unknown')}">
                     <span class="status-dot"></span>
                     ${escapeHTML(iface.status || 'unknown')}
                 </span>
