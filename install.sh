@@ -56,6 +56,14 @@ ensure_ufw() {
   fi
 
   if ufw status 2>/dev/null | head -n 1 | grep -qi "inactive"; then
+    if [[ -n "${SSH_CONNECTION:-}" ]]; then
+      ssh_port="$(echo "$SSH_CONNECTION" | awk '{print $4}')"
+      if [[ -n "${ssh_port:-}" ]]; then
+        ufw allow "${ssh_port}/tcp" >/dev/null 2>&1 || true
+      fi
+    fi
+    ufw allow OpenSSH >/dev/null 2>&1 || true
+    ufw allow 22/tcp >/dev/null 2>&1 || true
     ufw --force enable >/dev/null
   fi
 }
@@ -64,7 +72,8 @@ build_and_install() {
   local repo="https://github.com/ifernandosousa/ufw2me.git"
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  TMPDIR_UFW2ME="$tmp"
+  trap 'if [[ -n "${TMPDIR_UFW2ME:-}" ]]; then rm -rf "${TMPDIR_UFW2ME}"; fi' EXIT
 
   git clone --depth 1 "$repo" "$tmp" >/dev/null
   (cd "$tmp" && go build -trimpath -ldflags "-s -w" -o /usr/local/bin/ufw2me .)
@@ -78,6 +87,13 @@ UFW2ME_PORT=9850
 EOF
     chmod 0644 /etc/ufw2me.env
   fi
+}
+
+allow_ufw2me_port() {
+  port="$(grep -E '^UFW2ME_PORT=' /etc/ufw2me.env 2>/dev/null | tail -n 1 | cut -d= -f2 || true)"
+  port="${port:-9850}"
+  ufw allow "${port}/tcp" >/dev/null 2>&1 || true
+  ufw reload >/dev/null 2>&1 || true
 }
 
 ensure_systemd_service() {
@@ -111,6 +127,7 @@ ensure_deps
 ensure_ufw
 build_and_install
 ensure_config
+allow_ufw2me_port
 ensure_systemd_service
 
 port="$(grep -E '^UFW2ME_PORT=' /etc/ufw2me.env 2>/dev/null | tail -n 1 | cut -d= -f2 || true)"

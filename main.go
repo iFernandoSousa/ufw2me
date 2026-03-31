@@ -86,8 +86,8 @@ func main() {
 	fileServer := http.FileServer(http.FS(frontendContent))
 	mux.Handle("/", fileServer)
 
-	addr := fmt.Sprintf(":%s", port)
-	log.Printf("🔥 ufw2me starting on http://0.0.0.0%s", addr)
+	addr := fmt.Sprintf("0.0.0.0:%s", port)
+	log.Printf("🔥 ufw2me starting on http://%s", addr)
 	log.Printf("   Mode: %s", func() string {
 		if devMode {
 			return "development (mock)"
@@ -261,7 +261,7 @@ func loadPersistedRules() []Rule {
 	if devMode {
 		filename = "dev_rules.json"
 	}
-	
+
 	b, err := os.ReadFile(filename)
 	if err == nil {
 		var rules []Rule
@@ -269,7 +269,7 @@ func loadPersistedRules() []Rule {
 			return rules
 		}
 	}
-	
+
 	// Fallback to current UFW status
 	var out string
 	if devMode {
@@ -278,12 +278,12 @@ func loadPersistedRules() []Rule {
 		out, _ = runUFW("status")
 	}
 	rules := parseUFWRules(out)
-	
+
 	// Default all imported rules to active
 	for i := range rules {
 		rules[i].Active = true
 	}
-	
+
 	return rules
 }
 
@@ -305,7 +305,7 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		active = strings.Contains(out, "Status: active")
 	}
-	
+
 	rules := loadPersistedRules()
 
 	resp := StatusResponse{
@@ -360,13 +360,13 @@ func handleSaveRules(w http.ResponseWriter, r *http.Request) {
 
 	if devMode {
 		log.Printf("DEV MODE: Saving %d rules to dev_rules.json", len(payload.Rules))
-		
+
 		for _, rule := range payload.Rules {
 			activeStr := "Active"
 			if !rule.Active {
 				activeStr = "Inactive"
 			}
-			log.Printf("  Order: %d | [%s] Interface: %s | Description: %s | IPs: %v | Protocol: %s | Port: %s | Port Range: %s", 
+			log.Printf("  Order: %d | [%s] Interface: %s | Description: %s | IPs: %v | Protocol: %s | Port: %s | Port Range: %s",
 				rule.Order, activeStr, rule.Interface, rule.Description, rule.IPs, rule.Protocol, rule.Port, rule.PortRange)
 		}
 		jsonResponse(w, map[string]string{"status": "ok", "message": "Rules applied (dev mode)"})
