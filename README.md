@@ -4,6 +4,16 @@ ufw2me is a lightweight web UI for managing UFW (Uncomplicated Firewall) rules. 
 
 Default port: `9850` (configurable).
 
+## Screenshots
+
+### Rules
+
+![Rules](screenshot/rules.png)
+
+### Interfaces
+
+![Interfaces](screenshot/interfaces.png)
+
 ## Features
 
 - View UFW status and rules
