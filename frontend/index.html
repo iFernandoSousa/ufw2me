@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ufw2me - Web-based firewall management interface for UFW">
+    <title>ufw2me — Firewall Manager</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔥</text></svg>">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header id="app-header">
+            <div class="header-left">
+                <h1 id="firewall-title">
+                    <span class="firewall-name">ufw2me</span>
+                    <span id="status-badge" class="status-badge loading">
+                        <span class="status-dot"></span>
+                        <span class="status-text">Loading...</span>
+                    </span>
+                </h1>
+                <div id="header-meta" class="header-meta">
+                    <span id="rule-count">Rules —</span>
+                    <span class="meta-separator">·</span>
+                    <span id="interface-info">Interfaces —</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="header-actions">
+                    <button id="theme-toggle" class="btn btn-icon" title="Toggle theme">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="5"/>
+                            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+                        </svg>
+                    </button>
+                    <div class="dropdown" id="actions-dropdown">
+                        <button class="btn btn-secondary" id="actions-btn">
+                            Actions
+                            <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                        </button>
+                        <div class="dropdown-menu" id="actions-menu">
+                            <button class="dropdown-item" id="toggle-ufw-btn">
+                                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 11-12.73 0M12 2v10"/></svg>
+                                <span id="toggle-ufw-text">Disable Firewall</span>
+                            </button>
+                            <button class="dropdown-item" id="reload-btn">
+                                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+                                Reload
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Tabs -->
+        <nav id="tabs-nav" class="tabs-nav">
+            <div class="tabs-left">
+                <button class="tab active" data-tab="rules">Rules</button>
+                <button class="tab" data-tab="interfaces">Interfaces</button>
+            </div>
+            <div class="tabs-right">
+                <div class="dropdown" id="add-rule-dropdown">
+                    <button class="btn btn-primary" id="add-rule-btn">
+                        Add rule
+                        <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                    </button>
+                    <div class="dropdown-menu" id="add-rule-menu">
+                        <button class="dropdown-item" data-direction="in">
+                            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+                            Incoming
+                        </button>
+                        <button class="dropdown-item" data-direction="out">
+                            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                            Outgoing
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Tab Content -->
+        <main id="main-content">
+            <!-- Rules Tab -->
+            <div id="rules-tab" class="tab-content active">
+                <!-- Loading State -->
+                <div id="rules-loading" class="loading-state">
+                    <div class="spinner"></div>
+                    <p>Loading firewall rules...</p>
+                </div>
+
+                <!-- Inbound Section -->
+                <section id="inbound-section" class="rules-section" style="display:none;">
+                    <div class="section-header">
+                        <h2 class="section-title">
+                            INBOUND
+                            <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+                        </h2>
+                    </div>
+                    <div id="inbound-rules" class="rules-list"></div>
+                    <button class="add-rule-inline" data-direction="in">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Add rule
+                    </button>
+                </section>
+
+                <!-- Outbound Section -->
+                <section id="outbound-section" class="rules-section" style="display:none;">
+                    <div class="section-header">
+                        <h2 class="section-title">
+                            OUTBOUND
+                            <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                        </h2>
+                    </div>
+                    <div id="outbound-rules" class="rules-list"></div>
+                    <button class="add-rule-inline" data-direction="out">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Add rule
+                    </button>
+                </section>
+            </div>
+
+            <!-- Interfaces Tab -->
+            <div id="interfaces-tab" class="tab-content">
+                <div id="interfaces-list" class="interfaces-list"></div>
+            </div>
+        </main>
+
+        <!-- Save Bar -->
+        <div id="save-bar" class="save-bar">
+            <div class="save-bar-content">
+                <span class="save-bar-text">You have unsaved changes</span>
+                <div class="save-bar-actions">
+                    <button id="cancel-btn" class="btn btn-secondary">Cancel</button>
+                    <button id="save-btn" class="btn btn-danger">Save changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Confirm Dialog -->
+    <div id="confirm-dialog" class="modal">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <h3 class="modal-title">Delete Rule</h3>
+            <p class="modal-message">Are you sure you want to delete this rule? This action cannot be undone.</p>
+            <div class="modal-actions">
+                <button id="confirm-cancel" class="btn btn-secondary">Cancel</button>
+                <button id="confirm-delete" class="btn btn-danger">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
