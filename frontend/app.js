@@ -18,7 +18,13 @@
     };
 
     // ─── Constants ──────────────────────────────────────────────
+    const THEME_CHOICES = ['dark', 'light', 'system'];
     const PROTOCOLS = ['TCP', 'UDP', 'ICMP', 'GRE', 'ESP'];
+    const ACTIONS = [
+        { label: 'Allow', value: 'allow' },
+        { label: 'Deny', value: 'deny' },
+        { label: 'Reject', value: 'reject' },
+    ];
     const IP_PRESETS = [
         { label: 'Any IPv4', value: 'Any IPv4' },
         { label: 'Any IPv6', value: 'Any IPv6' },
@@ -65,16 +71,41 @@
     }
 
     // ─── Theme ──────────────────────────────────────────────────
+    let systemThemeMedia = null;
+    let systemThemeListener = null;
+
+    function getSystemTheme() {
+        if (!window.matchMedia) return 'dark';
+        return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    }
+
     function applyTheme(theme) {
         state.theme = theme;
-        document.documentElement.setAttribute('data-theme', theme);
         localStorage.setItem('ufw2me-theme', theme);
+
+        if (systemThemeMedia && systemThemeListener) {
+            systemThemeMedia.removeEventListener('change', systemThemeListener);
+        }
+
+        const effectiveTheme = theme === 'system' ? getSystemTheme() : theme;
+        document.documentElement.setAttribute('data-theme', effectiveTheme);
+
+        if (theme === 'system' && window.matchMedia) {
+            systemThemeMedia = window.matchMedia('(prefers-color-scheme: light)');
+            systemThemeListener = () => {
+                document.documentElement.setAttribute('data-theme', getSystemTheme());
+            };
+            systemThemeMedia.addEventListener('change', systemThemeListener);
+        }
 
         const themeBtn = document.getElementById('theme-toggle');
         if (themeBtn) {
-            themeBtn.innerHTML = theme === 'dark'
-                ? '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>'
-                : '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>';
+            const icons = {
+                dark: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>',
+                light: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>',
+                system: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+            };
+            themeBtn.innerHTML = icons[theme] || icons.dark;
         }
     }
 
@@ -82,7 +113,9 @@
     function setupEventListeners() {
         // Theme toggle
         document.getElementById('theme-toggle').addEventListener('click', () => {
-            applyTheme(state.theme === 'dark' ? 'light' : 'dark');
+            const idx = THEME_CHOICES.indexOf(state.theme);
+            const next = THEME_CHOICES[(idx + 1) % THEME_CHOICES.length];
+            applyTheme(next);
         });
 
         // Tabs
@@ -280,8 +313,14 @@
         // IP tags area
         body.appendChild(createIPTagsArea(rule));
 
+        // Action select
+        body.appendChild(createActionSelect(rule));
+
         // Protocol select
         body.appendChild(createProtocolSelect(rule));
+
+        // Interface select
+        body.appendChild(createInterfaceSelect(rule));
 
         // Port inputs
         body.appendChild(createPortInputs(rule));
@@ -466,6 +505,72 @@
         return group;
     }
 
+    function createActionSelect(rule) {
+        const group = document.createElement('div');
+        group.className = 'action-group';
+
+        const label = document.createElement('span');
+        label.className = 'field-label';
+        label.textContent = 'Action';
+        group.appendChild(label);
+
+        const select = document.createElement('select');
+        select.className = 'action-select';
+
+        ACTIONS.forEach(a => {
+            const option = document.createElement('option');
+            option.value = a.value;
+            option.textContent = a.label;
+            option.selected = (rule.action || 'allow') === a.value;
+            select.appendChild(option);
+        });
+
+        select.addEventListener('change', () => {
+            rule.action = select.value;
+            markChanged();
+        });
+
+        group.appendChild(select);
+        return group;
+    }
+
+    function createInterfaceSelect(rule) {
+        const group = document.createElement('div');
+        group.className = 'interface-group';
+
+        const label = document.createElement('span');
+        label.className = 'field-label';
+        label.textContent = 'Interface';
+        group.appendChild(label);
+
+        const select = document.createElement('select');
+        select.className = 'interface-select';
+
+        const anyOpt = document.createElement('option');
+        anyOpt.value = '';
+        anyOpt.textContent = 'Any';
+        select.appendChild(anyOpt);
+
+        const ifaceNames = (state.interfaces || [])
+            .map(i => i.name)
+            .filter(Boolean);
+        ifaceNames.forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            opt.selected = (rule.interface || '') === name;
+            select.appendChild(opt);
+        });
+
+        select.addEventListener('change', () => {
+            rule.interface = select.value;
+            markChanged();
+        });
+
+        group.appendChild(select);
+        return group;
+    }
+
     function createPortInputs(rule) {
         const group = document.createElement('div');
         group.className = 'port-group';
@@ -476,13 +581,13 @@
 
         const portLabel = document.createElement('span');
         portLabel.className = 'field-label';
-        portLabel.innerHTML = 'Port <span class="required">*</span>';
+        portLabel.innerHTML = 'Start port <span class="required">*</span>';
         portField.appendChild(portLabel);
 
         const portInput = document.createElement('input');
         portInput.type = 'text';
         portInput.className = 'port-input';
-        portInput.placeholder = 'Port *';
+        portInput.placeholder = 'Start *';
         portInput.value = rule.port || '';
         portInput.addEventListener('input', () => {
             const value = portInput.value;
@@ -524,13 +629,13 @@
 
         const rangeLabel = document.createElement('span');
         rangeLabel.className = 'field-label';
-        rangeLabel.textContent = 'Port range';
+        rangeLabel.textContent = 'End port';
         rangeField.appendChild(rangeLabel);
 
         const rangeInput = document.createElement('input');
         rangeInput.type = 'text';
         rangeInput.className = 'port-input';
-        rangeInput.placeholder = 'Port range';
+        rangeInput.placeholder = 'End';
         rangeInput.value = rule.port_range || '';
         rangeInput.addEventListener('input', () => {
             const value = rangeInput.value;
@@ -539,42 +644,27 @@
                 markChanged();
                 return;
             }
-            const parts = value.split('-');
-            let isValid = true;
-            for (const part of parts) {
-                const portNum = parseInt(part.trim(), 10);
-                if (!Number.isInteger(portNum) || portNum < 0 || portNum > 65535) {
-                    isValid = false;
-                    break;
-                }
+            const endPort = parseInt(value.trim(), 10);
+            const isValid = Number.isInteger(endPort) && endPort >= 0 && endPort <= 65535;
+            if (!isValid) {
+                rangeInput.value = rule.port_range || '';
+                rangeInput.classList.toggle('error', true);
+                return;
             }
-            if (parts.length >= 1 && rule.port) {
-                const startPort = parseInt(parts[0].trim(), 10);
-                const port = parseInt(rule.port, 10);
-                if (!isNaN(startPort) && !isNaN(port) && startPort < port) {
-                    showToast('Port range cannot be less than port', 'error');
-                    rangeInput.value = rule.port_range || '';
-                    rangeInput.classList.add('error');
-                    return;
-                }
-            }
-            if (parts.length === 2) {
-                const startPort = parseInt(parts[0].trim(), 10);
-                const endPort = parseInt(parts[1].trim(), 10);
-                if (endPort < startPort) {
+
+            if (rule.port) {
+                const startPort = parseInt(rule.port.trim(), 10);
+                if (!isNaN(startPort) && endPort < startPort) {
                     showToast('End port must be greater than or equal to start port', 'error');
                     rangeInput.value = rule.port_range || '';
                     rangeInput.classList.add('error');
                     return;
                 }
             }
-            if (isValid) {
-                rule.port_range = value;
-                markChanged();
-            } else {
-                rangeInput.value = rule.port_range || '';
-            }
-            rangeInput.classList.toggle('error', !isValid && value !== '');
+
+            rule.port_range = String(endPort);
+            rangeInput.classList.toggle('error', false);
+            markChanged();
         });
         rangeField.appendChild(rangeInput);
         group.appendChild(rangeField);
@@ -764,14 +854,17 @@
             }
         }
 
-        // Validate port vs port_range
+        // Validate port vs end port
         for (const rule of state.rules) {
             if (rule.port && rule.port_range) {
                 const port = parseInt(rule.port, 10);
-                const rangeParts = rule.port_range.split('-');
-                const rangeStart = parseInt(rangeParts[0].trim(), 10);
-                if (rangeStart < port) {
-                    showToast(`Port range (${rule.port_range}) cannot be less than port (${rule.port})`, 'error');
+                const endPort = parseInt(rule.port_range, 10);
+                if (!Number.isInteger(endPort) || endPort < 0 || endPort > 65535) {
+                    showToast(`Invalid end port: ${rule.port_range}`, 'error');
+                    return;
+                }
+                if (!isNaN(port) && endPort < port) {
+                    showToast(`End port (${rule.port_range}) cannot be less than start port (${rule.port})`, 'error');
                     const card = document.querySelector(`[data-rule-id="${rule.id}"]`);
                     if (card) {
                         card.scrollIntoView({ behavior: 'smooth', block: 'center' });

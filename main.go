@@ -39,9 +39,9 @@ type RulesPayload struct {
 
 // StatusResponse holds the UFW status
 type StatusResponse struct {
-	Active     bool   `json:"active"`
-	Status     string `json:"status"`
-	RuleCount  int    `json:"rule_count"`
+	Active     bool               `json:"active"`
+	Status     string             `json:"status"`
+	RuleCount  int                `json:"rule_count"`
 	Interfaces []NetworkInterface `json:"interfaces"`
 }
 
@@ -59,6 +59,7 @@ var (
 )
 
 func init() {
+	applyConfigFromFiles()
 	port = os.Getenv("UFW2ME_PORT")
 	if port == "" {
 		port = "9850"
@@ -270,8 +271,13 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 	rules := parseUFWRules(out)
 
 	resp := StatusResponse{
-		Active:     active,
-		Status:     func() string { if active { return "active" }; return "inactive" }(),
+		Active: active,
+		Status: func() string {
+			if active {
+				return "active"
+			}
+			return "inactive"
+		}(),
 		RuleCount:  len(rules),
 		Interfaces: getInterfaces(),
 	}
@@ -334,13 +340,15 @@ func handleSaveRules(w http.ResponseWriter, r *http.Request) {
 
 	// 3. Apply each rule in order
 	for _, rule := range payload.Rules {
-		args := buildUFWArgs(rule)
-		if len(args) == 0 {
-			continue
-		}
-		cmd = exec.Command("ufw", args...)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			log.Printf("Warning: Failed to apply rule: %s - %s", strings.Join(args, " "), string(out))
+		cmds := buildUFWCommands(rule)
+		for _, args := range cmds {
+			if len(args) == 0 {
+				continue
+			}
+			cmd = exec.Command("ufw", args...)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				log.Printf("Warning: Failed to apply rule: %s - %s", strings.Join(args, " "), string(out))
+			}
 		}
 	}
 
@@ -413,7 +421,7 @@ func parseUFWRules(output string) []Rule {
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "---") || strings.HasPrefix(line, "To") {
+		if strings.HasPrefix(line, "To") || strings.HasPrefix(line, "--") || strings.HasPrefix(line, "---") {
 			ruleSection = true
 			continue
 		}
@@ -442,8 +450,12 @@ func parseUFWRules(output string) []Rule {
 				hasV4 := false
 				hasV6 := false
 				for _, ip := range rules[idx].IPs {
-					if ip == "Any IPv4" { hasV4 = true }
-					if ip == "Any IPv6" { hasV6 = true }
+					if ip == "Any IPv4" {
+						hasV4 = true
+					}
+					if ip == "Any IPv6" {
+						hasV6 = true
+					}
 				}
 				if hasV4 && !hasV6 {
 					rules[idx].IPs = append(rules[idx].IPs, "Any IPv6")
@@ -472,18 +484,6 @@ func parseRuleLine(line string, order int) Rule {
 		Protocol:  "TCP",
 	}
 
-	// Detect direction
-	if strings.Contains(line, "OUT") || strings.Contains(line, "(out)") {
-		rule.Direction = "out"
-	}
-
-	// Parse action
-	if strings.Contains(line, "DENY") {
-		rule.Action = "deny"
-	} else if strings.Contains(line, "REJECT") {
-		rule.Action = "reject"
-	}
-
 	// Regex to parse standard UFW status lines
 	// Format: "To    Action    From"
 	// Example: "80/tcp    ALLOW    Anywhere"
@@ -494,28 +494,55 @@ func parseRuleLine(line string, order int) Rule {
 		return rule
 	}
 
-	to := strings.TrimSpace(parts[0])
-	from := strings.TrimSpace(parts[len(parts)-1])
+	toCol := strings.TrimSpace(parts[0])
+	actionCol := strings.ToUpper(strings.TrimSpace(parts[1]))
+	fromCol := strings.TrimSpace(parts[len(parts)-1])
+
+	if strings.Contains(actionCol, "OUT") || strings.Contains(line, "(out)") {
+		rule.Direction = "out"
+	}
+
+	if strings.Contains(actionCol, "DENY") {
+		rule.Action = "deny"
+	} else if strings.Contains(actionCol, "REJECT") {
+		rule.Action = "reject"
+	} else {
+		rule.Action = "allow"
+	}
 
 	// Parse port/protocol from "To" column
-	to = strings.Replace(to, " (v6)", "", 1)
-	if strings.Contains(to, "/") {
-		pp := strings.SplitN(to, "/", 2)
+	toCol = strings.Replace(toCol, " (v6)", "", 1)
+	toCol, rule.Interface = splitInterface(toCol)
+	toSpec, toIP := splitToSpecAndIP(toCol)
+
+	if strings.Contains(toSpec, "/") {
+		pp := strings.SplitN(toSpec, "/", 2)
 		rule.Port = pp[0]
 		rule.Protocol = strings.ToUpper(pp[1])
-	} else if to == "Anywhere" || to == "Anywhere (v6)" {
+	} else if toSpec == "Anywhere" || toSpec == "" {
 		rule.Port = "any"
 	} else {
-		rule.Port = to
+		rule.Port = toSpec
 	}
 
 	// Parse "From" column
-	from = strings.Replace(from, "(out)", "", 1)
-	from = strings.TrimSpace(from)
-	if from == "Anywhere" || from == "Anywhere (v6)" {
-		rule.IPs = []string{"Any IPv4"}
+	fromCol = strings.Replace(fromCol, "(out)", "", 1)
+	fromCol = strings.TrimSpace(fromCol)
+
+	if rule.Direction == "out" {
+		if toIP == "Anywhere" || toIP == "" {
+			rule.IPs = []string{"Any IPv4"}
+		} else if toIP == "Anywhere (v6)" {
+			rule.IPs = []string{"Any IPv6"}
+		} else {
+			rule.IPs = []string{toIP}
+		}
 	} else {
-		rule.IPs = []string{from}
+		if fromCol == "Anywhere" || fromCol == "Anywhere (v6)" {
+			rule.IPs = []string{"Any IPv4"}
+		} else {
+			rule.IPs = []string{fromCol}
+		}
 	}
 
 	// Handle port ranges
@@ -528,9 +555,7 @@ func parseRuleLine(line string, order int) Rule {
 	return rule
 }
 
-func buildUFWArgs(rule Rule) []string {
-	var args []string
-
+func buildUFWCommands(rule Rule) [][]string {
 	action := rule.Action
 	if action == "" {
 		action = "allow"
@@ -541,10 +566,10 @@ func buildUFWArgs(rule Rule) []string {
 		direction = "out"
 	}
 
-	// Build port spec
-	port := rule.Port
-	if rule.PortRange != "" {
-		port = port + ":" + rule.PortRange
+	port := strings.TrimSpace(rule.Port)
+	portRange := strings.TrimSpace(rule.PortRange)
+	if port != "" && portRange != "" {
+		port = port + ":" + portRange
 	}
 
 	proto := strings.ToLower(rule.Protocol)
@@ -552,41 +577,146 @@ func buildUFWArgs(rule Rule) []string {
 		proto = "tcp"
 	}
 
-	for _, ip := range rule.IPs {
-		fromIP := ""
-		switch ip {
-		case "Any IPv4", "Any IPv6", "":
-			fromIP = ""
-		default:
-			fromIP = ip
-		}
-
-		args = []string{action, direction}
-
-		if fromIP != "" {
-			args = append(args, "from", fromIP)
-		}
-
-		if port != "" && port != "any" {
-			args = append(args, "to", "any", "port", port, "proto", proto)
-		}
-
-		// Execute for each IP
-		if len(args) > 0 {
-			return args
-		}
+	ipValues := normalizeIPs(rule.IPs)
+	if len(ipValues) == 0 {
+		ipValues = []string{""}
 	}
 
-	if len(rule.IPs) == 0 {
-		args = []string{action, direction}
-		if port != "" && port != "any" {
-			args = append(args, "to", "any", "port", port, "proto", proto)
+	var cmds [][]string
+	for _, ip := range ipValues {
+		args := []string{action, direction}
+		if rule.Interface != "" {
+			args = append(args, "on", rule.Interface)
 		}
-		return args
+
+		if direction == "in" {
+			if ip != "" {
+				args = append(args, "from", ip)
+			}
+			if port != "" && port != "any" {
+				args = append(args, "to", "any", "port", port, "proto", proto)
+			}
+		} else {
+			if ip != "" {
+				args = append(args, "to", ip)
+			} else {
+				args = append(args, "to", "any")
+			}
+			if port != "" && port != "any" {
+				args = append(args, "port", port, "proto", proto)
+			}
+		}
+
+		cmds = append(cmds, args)
 	}
 
-	return args
+	return cmds
 }
 
 // unused but kept for completeness
 var _ = strconv.Itoa
+
+func applyConfigFromFiles() {
+	paths := []string{
+		"/etc/ufw2me.env",
+		"./ufw2me.env",
+	}
+	for _, p := range paths {
+		applyEnvFile(p)
+	}
+}
+
+func applyEnvFile(path string) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	lines := strings.Split(string(b), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, val, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		val = strings.TrimSpace(val)
+		if key == "" {
+			continue
+		}
+		if _, exists := os.LookupEnv(key); exists {
+			continue
+		}
+		_ = os.Setenv(key, val)
+	}
+}
+
+func splitInterface(toCol string) (string, string) {
+	re := regexp.MustCompile(`\s+on\s+([^\s]+)\s*$`)
+	m := re.FindStringSubmatch(toCol)
+	if len(m) == 2 {
+		toCol = strings.TrimSpace(re.ReplaceAllString(toCol, ""))
+		return toCol, m[1]
+	}
+	return toCol, ""
+}
+
+func splitToSpecAndIP(toCol string) (string, string) {
+	tokens := strings.Fields(toCol)
+	if len(tokens) >= 2 && isLikelyIPToken(tokens[0]) {
+		return tokens[1], tokens[0]
+	}
+	return toCol, ""
+}
+
+func isLikelyIPToken(token string) bool {
+	if token == "Anywhere" || token == "Anywhere (v6)" {
+		return true
+	}
+
+	if strings.Contains(token, "/") {
+		left, right, ok := strings.Cut(token, "/")
+		if ok && right != "" {
+			if strings.Count(left, ".") == 3 {
+				if _, err := strconv.Atoi(right); err == nil {
+					return true
+				}
+			}
+			if strings.Count(left, ":") >= 2 {
+				if _, err := strconv.Atoi(right); err == nil {
+					return true
+				}
+			}
+		}
+	}
+
+	if strings.Count(token, ".") == 3 {
+		return true
+	}
+	if strings.Count(token, ":") >= 2 {
+		return true
+	}
+	return false
+}
+
+func normalizeIPs(ips []string) []string {
+	var out []string
+	for _, ip := range ips {
+		ip = strings.TrimSpace(ip)
+		if ip == "" {
+			continue
+		}
+		switch ip {
+		case "Any IPv4", "Any IPv6", "Anywhere", "Anywhere (v6)":
+			continue
+		default:
+			out = append(out, ip)
+		}
+	}
+	return out
+}

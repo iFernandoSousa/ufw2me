@@ -1,3 +1,3 @@
-module github.com/fernandosousa/ufw2me
+module github.com/ifernandosousa/ufw2me
 
 go 1.22.0

@@ -564,7 +564,7 @@ body {
 /* Rule body layout */
 .rule-body {
     display: grid;
-    grid-template-columns: 1fr auto auto auto;
+    grid-template-columns: 1fr auto auto auto auto;
     gap: 12px;
     align-items: start;
 }
@@ -691,7 +691,9 @@ body {
 }
 
 /* Protocol select */
-.protocol-group {
+.protocol-group,
+.action-group,
+.interface-group {
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -708,7 +710,9 @@ body {
     color: var(--accent-primary);
 }
 
-.protocol-select {
+.protocol-select,
+.action-select,
+.interface-select {
     min-width: 100px;
     padding: 7px 32px 7px 12px;
     background: var(--bg-input);
@@ -726,11 +730,15 @@ body {
     transition: all var(--transition-fast);
 }
 
-.protocol-select:hover {
+.protocol-select:hover,
+.action-select:hover,
+.interface-select:hover {
     border-color: var(--border-color-hover);
 }
 
-.protocol-select:focus {
+.protocol-select:focus,
+.action-select:focus,
+.interface-select:focus {
     border-color: var(--border-color-focus);
     box-shadow: 0 0 0 3px var(--accent-primary-bg);
 }
