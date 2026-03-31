@@ -498,9 +498,20 @@ body {
     animation: slideIn 0.3s ease-out;
 }
 
+.rule-card.inactive {
+    opacity: 0.6;
+    background: var(--bg-primary);
+}
+
+.rule-card.inactive .rule-description {
+    color: var(--text-muted);
+    text-decoration: line-through;
+}
+
 .rule-card:hover {
     border-color: var(--border-color-hover);
     box-shadow: var(--shadow-sm);
+    opacity: 1;
 }
 
 .rule-card.is-new {
@@ -536,11 +547,64 @@ body {
     100% { box-shadow: 0 0 0 1px var(--border-color-new), var(--shadow-glow); }
 }
 
+/* Active Toggle */
+.rule-active-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 32px;
+    height: 18px;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--border-color);
+    transition: .3s;
+    border-radius: 20px;
+}
+
+.toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 12px;
+    width: 12px;
+    left: 3px;
+    bottom: 3px;
+    background-color: var(--text-primary);
+    transition: .3s;
+    border-radius: 50%;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background-color: var(--success);
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+    transform: translateX(14px);
+    background-color: #fff;
+}
+
 /* Rule description */
 .rule-description {
-    width: 100%;
+    flex: 1;
     padding: 0;
-    margin-bottom: 12px;
     border: none;
     background: none;
     color: var(--text-primary);
@@ -691,6 +755,7 @@ body {
 }
 
 /* Protocol select */
+.ip-group,
 .protocol-group,
 .action-group,
 .interface-group {

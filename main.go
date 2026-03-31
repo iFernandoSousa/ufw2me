@@ -21,6 +21,7 @@ var frontendFS embed.FS
 // Rule represents a single UFW firewall rule
 type Rule struct {
 	ID          string   `json:"id"`
+	Active      bool     `json:"active"`
 	Description string   `json:"description"`
 	IPs         []string `json:"ips"`
 	Protocol    string   `json:"protocol"`
@@ -255,20 +256,57 @@ func parseIfconfig(output string) []NetworkInterface {
 
 // ─── API Handlers ────────────────────────────────────────────
 
+func loadPersistedRules() []Rule {
+	filename := "rules.json"
+	if devMode {
+		filename = "dev_rules.json"
+	}
+	
+	b, err := os.ReadFile(filename)
+	if err == nil {
+		var rules []Rule
+		if err := json.Unmarshal(b, &rules); err == nil {
+			return rules
+		}
+	}
+	
+	// Fallback to current UFW status
+	var out string
+	if devMode {
+		out, _ = mockUFW("status")
+	} else {
+		out, _ = runUFW("status")
+	}
+	rules := parseUFWRules(out)
+	
+	// Default all imported rules to active
+	for i := range rules {
+		rules[i].Active = true
+	}
+	
+	return rules
+}
+
 func handleStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
 		jsonError(w, "Method not allowed", 405)
 		return
 	}
 
-	out, err := runUFW("status")
-	if err != nil && !devMode {
-		jsonError(w, "Failed to get UFW status: "+err.Error(), 500)
-		return
-	}
+	var active bool
 
-	active := strings.Contains(out, "Status: active")
-	rules := parseUFWRules(out)
+	if devMode {
+		active = true
+	} else {
+		out, err := runUFW("status")
+		if err != nil {
+			jsonError(w, "Failed to get UFW status: "+err.Error(), 500)
+			return
+		}
+		active = strings.Contains(out, "Status: active")
+	}
+	
+	rules := loadPersistedRules()
 
 	resp := StatusResponse{
 		Active: active,
@@ -290,13 +328,7 @@ func handleRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out, err := runUFW("status")
-	if err != nil && !devMode {
-		jsonError(w, "Failed to get UFW rules: "+err.Error(), 500)
-		return
-	}
-
-	rules := parseUFWRules(out)
+	rules := loadPersistedRules()
 	jsonResponse(w, rules)
 }
 
@@ -315,10 +347,27 @@ func handleSaveRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Save rules to file as source of truth
+	fileToSave := "rules.json"
 	if devMode {
-		log.Printf("DEV MODE: Would apply %d rules", len(payload.Rules))
-		for i, rule := range payload.Rules {
-			log.Printf("  Rule %d: %s %s %s:%s from %v", i+1, rule.Direction, rule.Action, rule.Protocol, rule.Port, rule.IPs)
+		fileToSave = "dev_rules.json"
+	}
+	// Important: Marshal indent respects bools and other types correctly.
+	b, err := json.MarshalIndent(payload.Rules, "", "  ")
+	if err == nil {
+		os.WriteFile(fileToSave, b, 0644)
+	}
+
+	if devMode {
+		log.Printf("DEV MODE: Saving %d rules to dev_rules.json", len(payload.Rules))
+		
+		for _, rule := range payload.Rules {
+			activeStr := "Active"
+			if !rule.Active {
+				activeStr = "Inactive"
+			}
+			log.Printf("  Order: %d | [%s] Interface: %s | Description: %s | IPs: %v | Protocol: %s | Port: %s | Port Range: %s", 
+				rule.Order, activeStr, rule.Interface, rule.Description, rule.IPs, rule.Protocol, rule.Port, rule.PortRange)
 		}
 		jsonResponse(w, map[string]string{"status": "ok", "message": "Rules applied (dev mode)"})
 		return
@@ -340,6 +389,9 @@ func handleSaveRules(w http.ResponseWriter, r *http.Request) {
 
 	// 3. Apply each rule in order
 	for _, rule := range payload.Rules {
+		if !rule.Active {
+			continue // Skip applying inactive rules
+		}
 		cmds := buildUFWCommands(rule)
 		for _, args := range cmds {
 			if len(args) == 0 {

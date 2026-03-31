@@ -241,15 +241,8 @@
         badge.className = 'status-badge ' + (status.active ? 'active' : 'inactive');
         badge.querySelector('.status-text').textContent = status.active ? 'Fully applied' : 'Inactive';
 
-        document.getElementById('rule-count').textContent = `Rules ${status.rule_count}`;
-
-        const ifaceNames = (status.interfaces || [])
-            .filter(i => i.name !== 'lo')
-            .map(i => i.name)
-            .join(', ');
-        document.getElementById('interface-info').textContent = ifaceNames
-            ? `Interfaces: ${ifaceNames}`
-            : 'Interfaces —';
+        const activeRulesCount = state.rules.filter(r => r.active !== false).length;
+        document.getElementById('rule-count').textContent = `${activeRulesCount} active rules`;
 
         document.getElementById('toggle-ufw-text').textContent = status.active
             ? 'Disable Firewall'
@@ -276,7 +269,7 @@
 
     function createRuleCard(rule, index) {
         const card = document.createElement('div');
-        card.className = 'rule-card' + (rule._isNew ? ' is-new' : '');
+        card.className = 'rule-card' + (rule._isNew ? ' is-new' : '') + (rule.active === false ? ' inactive' : '');
         card.dataset.ruleId = rule.id;
         card.draggable = true;
 
@@ -294,6 +287,32 @@
         deleteBtn.addEventListener('click', () => deleteRule(rule.id));
         card.appendChild(deleteBtn);
 
+        // Top section with Toggle and Description
+        const topSection = document.createElement('div');
+        topSection.className = 'rule-active-toggle';
+
+        // Toggle Switch
+        const toggleLabel = document.createElement('label');
+        toggleLabel.className = 'toggle-switch';
+        toggleLabel.title = rule.active === false ? 'Enable rule' : 'Disable rule';
+        
+        const toggleInput = document.createElement('input');
+        toggleInput.type = 'checkbox';
+        toggleInput.checked = rule.active !== false; // defaults to true
+        toggleInput.addEventListener('change', () => {
+            rule.active = toggleInput.checked;
+            card.classList.toggle('inactive', !rule.active);
+            toggleLabel.title = rule.active ? 'Disable rule' : 'Enable rule';
+            markChanged();
+        });
+        
+        const toggleSlider = document.createElement('span');
+        toggleSlider.className = 'toggle-slider';
+        
+        toggleLabel.appendChild(toggleInput);
+        toggleLabel.appendChild(toggleSlider);
+        topSection.appendChild(toggleLabel);
+
         // Description input
         const descInput = document.createElement('input');
         descInput.type = 'text';
@@ -304,7 +323,9 @@
             rule.description = descInput.value;
             markChanged();
         });
-        card.appendChild(descInput);
+        topSection.appendChild(descInput);
+
+        card.appendChild(topSection);
 
         // Rule body
         const body = document.createElement('div');
@@ -334,6 +355,15 @@
     }
 
     function createIPTagsArea(rule) {
+        const group = document.createElement('div');
+        group.className = 'ip-group';
+        group.style.minWidth = '0'; // Allow shrinking
+
+        const label = document.createElement('span');
+        label.className = 'field-label';
+        label.textContent = 'IP Addresses';
+        group.appendChild(label);
+
         const wrapper = document.createElement('div');
         wrapper.style.position = 'relative';
 
@@ -430,7 +460,8 @@
 
         wrapper.appendChild(area);
         wrapper.appendChild(autocomplete);
-        return wrapper;
+        group.appendChild(wrapper);
+        return group;
     }
 
     function createIPTag(ip, rule) {
@@ -590,18 +621,33 @@
         portInput.placeholder = 'Start *';
         portInput.value = rule.port || '';
         portInput.addEventListener('input', () => {
-            const value = portInput.value;
+            const value = portInput.value.trim();
+            const lowerValue = value.toLowerCase();
             const portNum = parseInt(value, 10);
-            const isValid = value === '' || (Number.isInteger(portNum) && portNum >= 0 && portNum <= 65535);
+            const isValid = value === '' || lowerValue === 'any' || (Number.isInteger(portNum) && portNum >= 0 && portNum <= 65535 && String(portNum) === value);
+            
             portInput.classList.toggle('error', !isValid && value !== '');
             if (isValid || value === '') {
-                rule.port = value;
+                rule.port = lowerValue === 'any' ? 'any' : value;
                 markChanged();
             } else {
                 portInput.value = rule.port || '';
             }
             portInput.classList.toggle('error', !portInput.value && rule._isNew);
         });
+        
+        // Handle blur to explicitly set 'any' if blank or format it
+        portInput.addEventListener('blur', () => {
+            if (portInput.value.trim() === '') {
+                portInput.value = 'any';
+                rule.port = 'any';
+                markChanged();
+                portInput.classList.remove('error');
+            } else if (portInput.value.trim().toLowerCase() === 'any') {
+                portInput.value = 'any';
+            }
+        });
+        
         portField.appendChild(portInput);
         group.appendChild(portField);
 
@@ -637,6 +683,27 @@
         rangeInput.className = 'port-input';
         rangeInput.placeholder = 'End';
         rangeInput.value = rule.port_range || '';
+        
+        // Disable end port if start port is 'any'
+        const updateRangeState = () => {
+            if (rule.port === 'any' || !rule.port) {
+                rangeInput.disabled = true;
+                rangeInput.value = '';
+                rule.port_range = '';
+                rangeInput.style.opacity = '0.5';
+            } else {
+                rangeInput.disabled = false;
+                rangeInput.style.opacity = '1';
+            }
+        };
+        
+        // Initial state
+        updateRangeState();
+        
+        // Listen to start port changes to update range state
+        portInput.addEventListener('input', updateRangeState);
+        portInput.addEventListener('blur', updateRangeState);
+        
         rangeInput.addEventListener('input', () => {
             const value = rangeInput.value;
             if (value === '') {
@@ -645,14 +712,14 @@
                 return;
             }
             const endPort = parseInt(value.trim(), 10);
-            const isValid = Number.isInteger(endPort) && endPort >= 0 && endPort <= 65535;
+            const isValid = Number.isInteger(endPort) && endPort >= 0 && endPort <= 65535 && String(endPort) === value.trim();
             if (!isValid) {
                 rangeInput.value = rule.port_range || '';
                 rangeInput.classList.toggle('error', true);
                 return;
             }
 
-            if (rule.port) {
+            if (rule.port && rule.port !== 'any') {
                 const startPort = parseInt(rule.port.trim(), 10);
                 if (!isNaN(startPort) && endPort < startPort) {
                     showToast('End port must be greater than or equal to start port', 'error');
@@ -730,10 +797,11 @@
     function addNewRule(direction) {
         const newRule = {
             id: 'new-' + Date.now(),
+            active: true,
             description: '',
             ips: ['Any IPv4', 'Any IPv6'],
             protocol: 'TCP',
-            port: '',
+            port: 'any',
             port_range: '',
             direction: direction,
             action: 'allow',
@@ -829,7 +897,7 @@
         // Validate
         const emptyPort = state.rules.find(r => !r.port && r.port !== 'any');
         if (emptyPort) {
-            showToast('All rules must have a port specified', 'error');
+            showToast('All rules must have a port specified (or "any")', 'error');
             const card = document.querySelector(`[data-rule-id="${emptyPort.id}"]`);
             if (card) {
                 card.scrollIntoView({ behavior: 'smooth', block: 'center' });

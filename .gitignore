@@ -30,3 +30,7 @@ Thumbs.db
 /bin/
 /dist/
 /tmp/
+
+# Dev mock data
+dev_rules.json
+rules.json
